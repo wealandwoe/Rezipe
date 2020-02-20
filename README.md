@@ -107,6 +107,9 @@ $zip->unixextra = false;
 # 拡張フィールドにUnix情報(Uid,Gid)を追加する(※未検証)
 $zip->unixextra2 = false;
 
+# 拡張フィールドにUnicodePathを追加する
+$zip->upath = false;
+
 # LocalFileHeader直後にDataDescriptorを付け加える
 $zip->datadesc = false;
 

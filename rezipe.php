@@ -1,7 +1,7 @@
 <?php
 namespace Rezipe;
 
-const VERSION = '0.8.3';
+const VERSION = '0.8.4';
 const FE_SIGNATURE = 0x04034b50; # "PK\x03\x04"
 const DD_SIGNATURE = 0x08074b50; # "PK\x07\x08"
 const CD_SIGNATURE = 0x02014b50; # "PK\x01\x02"
@@ -16,6 +16,7 @@ class Zip {
 	public $unixextra;
 	public $unixextra2;
 	public $extime;
+	public $upath;
 	public $datadesc;
 	public $datadesc_signature;
 	public $is_utf8;
@@ -28,6 +29,7 @@ class Zip {
 		$this->unixextra = false;
 		$this->unixextra2 = false;
 		$this->extime = false;
+		$this->upath = false;
 		$this->datadesc = false;
 		$this->datadesc_signature = false;
 		$this->is_utf8 = false;
@@ -191,6 +193,13 @@ class ZipEntryIterator implements \Iterator {
 					"ctime" => $file_entry->ctime,
 					"cd" => $for_cd)));
 		}
+		# Info-ZIP Unicode Path Extra Field
+		if ($this->zip->upath) {
+			$ent->version = 20;
+			if ($for_cd) {$ent->madeby = 20;}
+			$ent->set_extra_field(new UnicodePathExtraField(array(
+					"path" => $file_entry->filename)));
+		}
 	}
 	
 	function valid() {
@@ -343,7 +352,7 @@ class FileEntry implements AbstractEntry {
 			array(bin2hex($this->get_exdata()), '', "extra field", "mB")
 		);
 		if ($this->datadesc) {
-			$data[] = array($this->get_dddata(), $this->get_dddata(), "data descriptor",
+			$data[] = array($this->get_dddata(), '', "data descriptor",
 					($this->datadesc_signature ? 16 : 12) . "B");
 		}
 		foreach($data as $arr) {
@@ -581,7 +590,9 @@ class FileEntry implements AbstractEntry {
 				"transfer" => $io,
 				"buffer" => $blen,
 				"zlib" => $this->compress,
-				"strlen" => !$this->is_compsize_ready,
+				"strlen" => true,
+				//TODO: なぜか無圧縮時にエラーが出るのでstrlenFilterは常にtrue
+				//"strlen" => !$this->is_compsize_ready,
 				"crc32" => $crc32,
 				"zipcrypto" => $this->zipcrypto));
 		if (!$this->is_compsize_ready) {
@@ -1366,6 +1377,7 @@ class ExtensibleDataField {
 	const HEADER_ID_NTFS    = 0x000a;
 	const HEADER_ID_UNIX    = 0x000d;
 	const HEADER_ID_EXTIME  = 0x5455;
+	const HEADER_ID_UPATH   = 0x7075;
 	const HEADER_ID_UNIX2   = 0x7855;
 }
 
@@ -1532,6 +1544,36 @@ class UnixExtraField extends ExtensibleDataField {
 				$this->uid,
 				$this->gid) .
 				$this->var;
+	}
+}
+
+// 0x7075 - Info-ZIP Unicode Path Extra Field
+class UnicodePathExtraField extends ExtensibleDataField {
+	public $path;
+	public $unicode_path;
+	public $version;
+	public $crc;
+	
+	function __construct($opt = null) {
+		$this->header_id = static::HEADER_ID_UPATH;
+		$this->path = $opt["path"];
+		$this->unicode_path = $this->path;
+		$this->version = 1;
+		$this->crc = crc32($this->unicode_path);
+		$this->data_size = 5 + strlen($this->unicode_path);
+	}
+	
+	function bytes() {
+		return 4 + $this->data_size;
+	}
+	
+	function to_s() {
+		return pack('vvCV',
+				$this->header_id,
+				$this->data_size,
+				$this->version,
+				$this->crc) .
+				$this->unicode_path;
 	}
 }
 

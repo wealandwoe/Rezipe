@@ -248,7 +248,7 @@ class ZipParser {
 			}
 			p(array(bin2hex(substr($buf, 0, 20)) . "...", strlen($buf), binesc($r)));
 			$stat['files'][] = $r;
-			$use_datadesc = $r['flag'] & 8 === 8;
+			$use_datadesc = ($r['flag'] & 8) === 8;
 			$compsize = $use_datadesc && $r['compsize'] === 0 ? $cd['compsize'] : $r['compsize'];
 			$size = $use_datadesc && $r['size'] === 0 ? $cd['size'] : $r['size'];
 			$is_directory = !$use_datadesc && $compsize === 0 && $size === 0;
@@ -276,7 +276,7 @@ class ZipParser {
 							"crc32" => $ex_crc32,
 							"zipdecrypto" => $is_encrypted ? $this->password : false));
 					$crc32 = $de->get_crc32('N');
-					var_export($de->logs);
+					//var_export($de->logs);
 					if (count($de->logs["E"])) {
 						puts("  DataExError:" . implode("\n", $de->logs["E"]));
 					}
