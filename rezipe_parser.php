@@ -15,15 +15,13 @@ function puts($msg) {
 
 function p($obj) {
 	//var_export($obj);
-	$out = json_encode($obj,
-			JSON_UNESCAPED_UNICODE |
-			JSON_NUMERIC_CHECK,
-			4096);
+	$out = json_encode($obj, JSON_UNESCAPED_UNICODE);
 	if ($out !== false && $out !== null) {
 		echo $out . "\n";
 	} else {
 		if ($err = json_last_error()) {
-			echo "JSON_ERROR[${err}]\n";
+			echo "// JSON_ERROR[code=${err}]:" . json_last_error_msg() . "\n";
+			json_encode("1");
 		}
 		echo serialize($obj) . "\n";
 	}
@@ -33,6 +31,7 @@ function binesc($obj) {
 	$escaped = array();
 	foreach($obj as $k => $v) {
 		if (is_string($v) && !json_encode($v)) {$v = bin2hex($v);}
+		if (json_last_error()) {json_encode("1");}
 		$escaped[$k] = $v;
 	}
 	return $escaped;
@@ -220,9 +219,54 @@ class ZipParser {
 			$is_utf8 = ($r['flag'] & (1 << 11)) === (1 << 11);
 			if (!$is_utf8) {$r['filename'] = mb_convert_encoding($r['filename'], 'UTF-8', 'CP932');}  #CP932を想定
 			$enc_header = '';
-			if ($is_encrypted = ($r['flag'] & 1) == 1) {$enc_header = fread($fh, 12);}
+			$enc_info = array('type' => '', 'detail' => '', 'params' => array());
+			if ($is_encrypted = ($r['flag'] & 1) == 1) {
+				if ($r['method'] === 99) { //AE-x
+					foreach(static::parse_exdata($r['exdata']) as $exd) {
+						if ($exd['id'] !== 0x9901) {continue;}
+						$aex = unpack('vvndver/A2vndid/Cstrength/vmethod', $exd['data']);
+						$hdr_size = (4 + $aex['strength'] * 4) + 2; //1:AES128-Salt8B, 2:AES192-Salt12B, 3:AES256-Salt16B
+						$comp_head = ftell($fh);
+						$enc_header = fread($fh, $hdr_size);
+						fseek($fh, $comp_head + $r['compsize'] - 10);
+						$authcode = fread($fh, 10);
+						$pwd_verify = substr($enc_header, $hdr_size-2, 2);
+						$enc_info['type'] = $aex['vndid'] . '-' . $aex['vndver'];
+						$enc_info['params'] = array(
+							'header_size' => $hdr_size,
+							'strength' => $aex['strength'],
+							'method' => $aex['method'],
+							'salt' => substr($enc_header, 0, $hdr_size-2),
+							'verify' => $pwd_verify,
+							'authcode' => $authcode
+						);
+						$enc_info['detail'] = 'KeySize:' . (64 + 64 * $aex['strength']) . 'bits, ' .
+								'Method:' . $aex['method'] . ', ' .
+								'Verify:' . bin2hex($pwd_verify) . ', ' .
+								'Authcode:' . bin2hex($authcode);
+						if ($this->password) {
+							$keylen = 8 + 8 * $aex['strength'];
+							$dk_len = 2 * $keylen + 2;
+							$dk = openssl_pbkdf2($this->password, $enc_info['params']['salt'], $dk_len, 1000);
+							fseek($fh, $comp_head + $hdr_size);
+							$enc_body = fread($fh, $r['compsize'] - $hdr_size - 10);
+							$hmac = hash_hmac('sha1', $enc_body, substr($dk, $keylen, $keylen), true);
+							$enc_info['detail'] .= ', PBKDF2:' . bin2hex($dk) . '(' .
+									'Pass:' . (substr($dk, $dk_len-2, 2) === $pwd_verify ? 'OK' : 'NG') . ',' .
+									'Hmac:' . (substr($hmac, 0, 10) === $authcode ? 'OK' : 'NG') . ')';
+						}
+						break;
+					}
+				} else { //ZipCrypto
+					$enc_info['type'] = $enc_info['detail'] = 'ZipCrypto';
+					$enc_header = fread($fh, 12);
+				}
+			}
 			puts("### FileEntry[${i}] : 0x" . sprintf('%08x', $pos) . " - " . $r['filename'] . ($is_encrypted ? ' (Encrypted)' : ''));
-			if ($is_encrypted) {puts("  [EncryptionHeader] : " . bin2hex($enc_header));}
+			if ($is_encrypted) {
+				puts("  [EncryptionHeader] : " . bin2hex($enc_header));
+				if ($enc_info['type']) {puts("  [EncryptionInfo] : " . $enc_info['type'] . ' ' . $enc_info['detail']);}
+			}
 			# size, compsize が 0xffffffff だった場合exdataをparse
 			$z64overflow_fields = array();
 			foreach($z64target['fields'] as $fld) {
@@ -605,7 +649,6 @@ class DataExtracter {
 		if (!$opt) {$opt = array();}
 		$opt = $opt + $this->option;
 		$mem = fopen("php://memory", "wb");
-		$to_write = $opt["zlib"] || $opt["crc32"];
 		if (is_string($opt["zipdecrypto"]) && is_int($opt["crc32"])) {
 			$this->set_zipdecrypto_filter($mem, $opt["zipdecrypto"], $opt["crc32"]);
 		}
@@ -613,7 +656,7 @@ class DataExtracter {
 		if ($opt["crc32"]) {$this->set_crc32_filter($mem, $this->hasher);}
 		$this->set_empty_filter($mem);
 		if ($this->data) {
-			if ($to_write) {fwrite($mem, $this->data);}
+			fwrite($mem, $this->data);
 		} else {
 			stream_copy_to_stream($this->zipfh, $mem, $opt['compsize'], $opt['offset']);
 /*

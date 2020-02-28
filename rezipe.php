@@ -1,7 +1,7 @@
 <?php
 namespace Rezipe;
 
-const VERSION = '0.8.4';
+const VERSION = '0.9.0';
 const FE_SIGNATURE = 0x04034b50; # "PK\x03\x04"
 const DD_SIGNATURE = 0x08074b50; # "PK\x07\x08"
 const CD_SIGNATURE = 0x02014b50; # "PK\x01\x02"
@@ -21,6 +21,7 @@ class Zip {
 	public $datadesc_signature;
 	public $is_utf8;
 	public $zipcrypto;
+	public $aescrypto;
 	
 	function __construct($callback = false) {
 		$this->files_info = array();
@@ -34,6 +35,7 @@ class Zip {
 		$this->datadesc_signature = false;
 		$this->is_utf8 = false;
 		$this->zipcrypto = null;
+		$this->aescrypto = null;
 		if ($callback) {$callback($this);}
 	}
 	
@@ -42,6 +44,7 @@ class Zip {
 		$ent = new FileEntry($virtual_path, $comp);
 		if ($this->is_utf8) {$ent->set_utf8(true);}
 		if (is_string($this->zipcrypto)) {$ent->set_zipcrypto($this->zipcrypto);}
+		elseif ($this->aescrypto) {$ent->set_aescrypto($this->aescrypto);}
 		$ent->set_data($data);
 		$this->files_info[] = $ent;
 	}
@@ -51,6 +54,7 @@ class Zip {
 		$ent = new FileEntry($virtual_path, $comp);
 		if ($this->is_utf8) {$ent->set_utf8(true);}
 		if (is_string($this->zipcrypto)) {$ent->set_zipcrypto($this->zipcrypto);}
+		elseif ($this->aescrypto) {$ent->set_aescrypto($this->aescrypto);}
 		$ent->set_file($path);
 		$this->files_info[] = $ent;
 	}
@@ -195,10 +199,15 @@ class ZipEntryIterator implements \Iterator {
 		}
 		# Info-ZIP Unicode Path Extra Field
 		if ($this->zip->upath) {
-			$ent->version = 20;
-			if ($for_cd) {$ent->madeby = 20;}
+			if ($ent->version < 20) {$ent->version = 20;}
 			$ent->set_extra_field(new UnicodePathExtraField(array(
 					"path" => $file_entry->filename)));
+		}
+		# AE-x Encryption Extra Field
+		if ($this->zip->aescrypto) {
+			if ($ent->version < 51) {$ent->version = 51;}
+			$ent->set_extra_field(new AExEncryptionExtraField(array(
+					"method" => $file_entry->method)));
 		}
 	}
 	
@@ -239,6 +248,7 @@ class FileEntry implements AbstractEntry {
 	public $datadesc_signature;
 	public $is_zip64;
 	public $zipcrypto;
+	public $aescrypto;
 	
 	private $path;
 	private $data;
@@ -274,13 +284,14 @@ class FileEntry implements AbstractEntry {
 		$this->is_crc32_ready = $this->is_compsize_ready = false;
 		$this->is_zip64 = false;
 		$this->zipcrypto = null;
+		$this->aescrypto = null;
 	}
 	
 	function append_zip64_exdata() {
 		if ($this->datadesc) {return;}
 		if (!$this->is_zip64) {return;}
 		if ($this->has_extra_field(Zip64ExtendedInformation::HEADER_ID_ZIP64)) {return;}
-		$this->version = 45;
+		if ($this->version < 45) {$this->version = 45;}
 		$this->set_extra_field(new Zip64ExtendedInformation(array(
 				"size" => $this->size, "compsize" => $this->get_compsize(), "cd" => false)));
 	}
@@ -291,7 +302,7 @@ class FileEntry implements AbstractEntry {
 		$ddsize = $this->datadesc ? 12 : 0;
 		if ($this->datadesc && $this->datadesc_signature) {$ddsize += 4;}
 		if ($this->datadesc && $this->is_zip64) {$ddsize += 8;}
-		return $this->header_size() + $this->compsize + $ddsize;
+		return $this->header_size() + $this->get_compsize() + $ddsize;
 	}
 	
 	function calc_crc32() {
@@ -310,7 +321,7 @@ class FileEntry implements AbstractEntry {
 	function calc_compsize($blen = null) {
 		if (!$blen) {$blen = static::DEFAULT_BUFLEN;}
 		if ($this->method === 0) {
-			$this->set_compsize($this->size + (is_string($this->zipcrypto) ? 12 : 0));
+			$this->set_compsize($this->size);
 			return $this->compsize;
 		}
 		$b = 0;
@@ -328,7 +339,7 @@ class FileEntry implements AbstractEntry {
 					"strlen" => true));
 			$b = $dd->get_compsize();
 		}
-		$this->set_compsize($b + (is_string($this->zipcrypto) ? 12 : 0));
+		$this->set_compsize($b);
 		return $this->compsize;
 	}
 	
@@ -340,10 +351,10 @@ class FileEntry implements AbstractEntry {
 			array(\Rezipe\FE_SIGNATURE, 'V', "file entry signature", "4B"),
 			array($this->version, 'v', "version needed extract(minimum)", "2B"),
 			array($this->flag, 'v', "general purpose bit flag", "2B"),
-			array($this->method,'v', "compression emthod", "2B"),
+			array(is_string($this->aescrypto) ? 99 : $this->method,'v', "compression emthod", "2B"),
 			array($this->time, 'v', "last modified time", "2B"),
 			array($this->date, 'v', "last modified date", "2B"),
-			array($this->datadesc ? 0 : $this->get_crc32(), 'V', "CRC-32", "4B"),
+			array($this->datadesc || is_string($this->aescrypto) ? 0 : $this->get_crc32(), 'V', "CRC-32", "4B"),
 			array($this->datadesc ? 0 : ($this->is_zip64 ? 0xffffffff : $this->get_compsize()), 'V', "compressed size", "4B"),
 			array($this->datadesc ? 0 : ($this->is_zip64 ? 0xffffffff : $this->size), 'V', "uncompressed size", "4B"),
 			array($this->len, 'v', "file name length(n)", "2B"),
@@ -363,9 +374,17 @@ class FileEntry implements AbstractEntry {
 		}
 	}
 	
-	function get_compsize() {
+	function get_compsize($raw_compsize = false) {
 		if (!$this->is_compsize_ready) {$this->calc_compsize();}
-		return $this->compsize;
+		if ($raw_compsize) {return $this->compsize;}
+		//zipcrypto,aescryptoの場合はcompressed sizeを水増し
+		$overhead = 0;
+		if (is_string($this->zipcrypto)) {
+			$overhead = 12;
+		} elseif (is_string($this->aescrypto)) {
+			$overhead = 28; //strength[0x03] => 28, [0x02] => 24, [0x01] => 20
+		}
+		return $this->compsize + $overhead;
 	}
 	
 	function get_crc32() {
@@ -376,7 +395,8 @@ class FileEntry implements AbstractEntry {
 	function get_dddata() {
 		$sig = $this->datadesc_signature ? pack('V', \Rezipe\DD_SIGNATURE) : "";
 		$pack_template = $this->is_zip64 ? 'VPP' : 'VVV';
-		$this->dddata = $sig . pack($pack_template, $this->get_crc32(), $this->get_compsize(), $this->size);
+		$crc32 = is_string($this->aescrypto) ? 0 : $this->get_crc32();
+		$this->dddata = $sig . pack($pack_template, $crc32, $this->get_compsize(), $this->size);
 		return $this->dddata;
 	}
 	
@@ -394,8 +414,9 @@ class FileEntry implements AbstractEntry {
 		$raw = $this->data ? $this->data : file_get_contents($this->path);
 		if ($this->compress) {$raw = gzdeflate($raw);}
 		return is_string($this->zipcrypto) ? 
-				ZipCrypto::encrypt($raw, $this->zipcrypto, $this->get_crc32()) :
-				$raw;
+				ZipCrypto::encrypt($raw, $this->zipcrypto, $this->get_crc32()) : (
+				is_string($this->aescrypto) ?
+				AExCrypto::encrypt($raw, $this->aescrypto) : $raw);
 	}
 	
 	function has_extra_field($header_id) {
@@ -412,10 +433,10 @@ class FileEntry implements AbstractEntry {
 				\Rezipe\FE_SIGNATURE,  #4B
 				$this->version,       #2B
 				$this->flag,          #2B
-				$this->method,        #2B
+				is_string($this->aescrypto) ? 99 : $this->method, #2B
 				$this->time,          #2B
 				$this->date,          #2B
-				$this->datadesc ? 0 : $this->get_crc32(),    #4B
+				$this->datadesc || is_string($this->aescrypto) ? 0 : $this->get_crc32(),    #4B
 				$this->datadesc ? 0 : ($this->is_zip64 ? 0xffffffff : $this->get_compsize()), #4B
 				$this->datadesc ? 0 : ($this->is_zip64 ? 0xffffffff : $this->size),     #4B
 				$this->len,           #2B
@@ -428,10 +449,20 @@ class FileEntry implements AbstractEntry {
 		return 30 + $this->len + $this->exlen;
 	}
 	
+	function set_aescrypto($password) {
+		$this->aescrypto = $password;
+		if (is_string($password)) {
+			$this->flag = $this->flag | 1;
+		} else {
+			$this->flag = $this->flag & ~1;
+		}
+	}
+	
 	function set_compsize($compsize) {
 		$this->compsize = $compsize;
 		$this->is_compsize_ready = true;
-		if ($compsize > 0xffffffff) {$this->is_zip64 = true;}
+		$overhead = is_string($this->zipcrypto) ? 12 : ($this->aescrypto ? 28 : 0);
+		if ($compsize+$overhead > 0xffffffff) {$this->is_zip64 = true;}
 	}
 	
 	function set_crc32($crc32) {
@@ -447,7 +478,7 @@ class FileEntry implements AbstractEntry {
 		$this->set_size(strlen($data));
 		$this->set_time($this->mtime);
 		if (!$this->compress) {
-			$this->set_compsize($this->size + (is_string($this->zipcrypto) ? 12 : 0));
+			$this->set_compsize($this->size);
 		}
 	}
 	
@@ -482,7 +513,7 @@ class FileEntry implements AbstractEntry {
 	function set_file($filepath) {
 		$this->path = $filepath;
 		$this->is_directory = is_dir($filepath);
-		$this->version = $this->is_directory || $this->compress ? 20 : 10;
+		if ($this->is_directory || $this->compress && $this->version < 20) {$this->version = 20;}
 		$this->mtime = filemtime($filepath);
 		$this->atime = fileatime($filepath);
 		$this->ctime = filectime($filepath);
@@ -497,7 +528,7 @@ class FileEntry implements AbstractEntry {
 			$this->set_size(filesize($filepath));
 			$this->set_time($this->mtime);
 			if (!$this->compress) {
-				$this->set_compsize($this->size + (is_string($this->zipcrypto) ? 12 : 0));
+				$this->set_compsize($this->size);
 			}
 		}
 	}
@@ -538,16 +569,11 @@ class FileEntry implements AbstractEntry {
 	}
 	
 	function set_zipcrypto($password) {
-		$fix_compsize = $this->is_compsize_ready && (
-				!$this->zipcrypto && is_string($password) ||
-				$this->zipcrypto && !is_string($password));
 		$this->zipcrypto = $password;
 		if (is_string($password)) {
 			$this->flag = $this->flag | 1;
-			if ($fix_compsize) {$this->set_compsize($this->compsize+12);}
 		} else {
 			$this->flag = $this->flag & ~1;
-			if ($fix_compsize) {$this->set_compsize($this->compsize-12);}
 		}
 	}
 	
@@ -590,13 +616,15 @@ class FileEntry implements AbstractEntry {
 				"transfer" => $io,
 				"buffer" => $blen,
 				"zlib" => $this->compress,
-				"strlen" => true,
-				//TODO: なぜか無圧縮時にエラーが出るのでstrlenFilterは常にtrue
-				//"strlen" => !$this->is_compsize_ready,
+				"strlen" => !$this->is_compsize_ready,
 				"crc32" => $crc32,
-				"zipcrypto" => $this->zipcrypto));
+				"zipcrypto" => $this->zipcrypto,
+				"aescrypto" => $this->aescrypto));
 		if (!$this->is_compsize_ready) {
-			$this->set_compsize($dd->get_compsize());
+			// overhead込みサイズなので調整
+			$overhead = is_string($this->zipcrypto) ? 12 : (
+					is_string($this->aescrypto) ? 28 : 0);
+			$this->set_compsize($dd->get_compsize() - $overhead);
 		}
 		if (!$this->is_crc32_ready) {
 			$this->set_crc32($dd->get_crc32('N'));
@@ -659,10 +687,10 @@ class CentralDirectory implements AbstractEntry {
 			array($this->madeby, 'v', "version made by", "2B"),
 			array($this->version, 'v', "version needed extract(minimum)", "2B"),
 			array($this->file_entry->flag, 'v', "general purpose bit flag", "2B"),
-			array($this->file_entry->method,'v', "compression emthod", "2B"),
+			array(is_string($this->file_entry->aescrypto) ? 99 : $this->file_entry->method,'v', "compression emthod", "2B"),
 			array($this->file_entry->time, 'v', "last modified time", "2B"),
 			array($this->file_entry->date, 'v', "last modified date", "2B"),
-			array($this->file_entry->get_crc32(), 'V', "CRC-32", "4B"),
+			array(is_string($this->file_entry->aescrypto) ? 0 : $this->file_entry->get_crc32(), 'V', "CRC-32", "4B"),
 			array($this->file_entry->get_compsize() > 0xffffffff ? 0xffffffff : $this->file_entry->get_compsize(),
 					'V', "compressed size", "4B"),
 			array($this->file_entry->size > 0xffffffff ? 0xffffffff : $this->file_entry->size,
@@ -735,10 +763,10 @@ class CentralDirectory implements AbstractEntry {
 				$this->madeby,
 				$this->version,
 				$this->file_entry->flag,
-				$this->file_entry->method,
+				is_string($this->file_entry->aescrypto) ? 99 : $this->file_entry->method,
 				$this->file_entry->time,
 				$this->file_entry->date,
-				$this->file_entry->get_crc32(),    #4B
+				is_string($this->file_entry->aescrypto) ? 0 : $this->file_entry->get_crc32(),    #4B
 				$this->file_entry->get_compsize() > 0xffffffff ? 0xffffffff : $this->file_entry->get_compsize(), #4B
 				$this->file_entry->size > 0xffffffff ? 0xffffffff : $this->file_entry->size,     #4B
 				$this->file_entry->len,
@@ -1164,6 +1192,213 @@ class ZipCrypto {
 }
 
 /**
+ * AEx Encryption
+ */
+class AExCrypto {
+	const MODE_DECRYPT = 0;
+	const MODE_ENCRYPT = 1;
+	public $version;
+	public $strength;
+	public $mode;
+	public $updated;
+	public $finalized;
+	private $salt;
+	private $dk;
+	private $hmac;
+	private $authcode;
+	private $buf;
+	private $ctr;
+	
+	function __construct($password, $opt = null) {
+		if (!$opt) {$opt = array();}
+		$opt += array("version" => 2, "strength" => 3, "salt" => null, "mode" => static::MODE_ENCRYPT);
+		$this->version = $opt["version"];
+		$this->strength = $opt["strength"];
+		$this->mode = $opt["mode"];
+		$this->salt = isset($opt["salt"]) ? $opt["salt"] : $this->get_salt();
+		$this->dk = $this->pbkdf2($password);
+		$this->hmac = hash_init('sha1', HASH_HMAC, $this->dk["authkey"]);
+		$this->authcode = null;
+		$this->buf = "";
+		$this->ctr = array(0, 0, 0, 0);
+		$this->updated = false;
+		$this->finalized = false;
+	}
+	
+	function finalize() {
+		$this->finalized = true;
+		return $this->buf ? $this->update("", true) : "";
+	}
+	
+	function get_authcode() {
+		if ($this->authcode !== null) {return $this->authcode;}
+		$this->authcode = substr(hash_final($this->hmac, true), 0, 10);
+		return $this->authcode;
+	}
+	
+	function get_nonce() {
+		if (($this->ctr[0]++) >= 0xffffffff) {$this->ctr[0] = 0;
+			if (($this->ctr[1]++) >= 0xffffffff) {$this->ctr[1] = 0;
+				if (($this->ctr[2]++) >= 0xffffffff) {$this->ctr[2] = 0;$this->ctr[3]++;}}}
+		return pack('VVVV', $this->ctr[0], $this->ctr[1], $this->ctr[2], $this->ctr[3]);
+	}
+	
+	function get_salt() {
+		if ($this->salt) {return $this->salt;}
+		return openssl_random_pseudo_bytes(4 + 4 * $this->strength);
+	}
+	
+	function get_verify() {
+		return $this->dk['verify'];
+	}
+	
+	function pbkdf2($password) {
+		$keysize = 8 + 8 * $this->strength;
+		$bytes = openssl_pbkdf2($password, $this->get_salt(), 2 + 2 * $keysize, 1000);
+		return array(
+			"enckey" => substr($bytes, 0, $keysize),
+			"authkey" => substr($bytes, $keysize, $keysize),
+			"verify" => substr($bytes, 2 * $keysize, 2)
+		);
+	}
+	
+	function update($data, $flush = false) {
+		$this->updated = true;
+		$out = "";
+		if ($this->buf) {
+			$data = $this->buf . $data;
+			$this->buf = "";
+		}
+		$len = strlen($data);
+		$blen = $len % 16;
+		if (!$flush && $blen > 0) {
+			$this->buf = substr($data, $len-$blen, $blen);
+			$data = substr($data, 0, $len-$blen);
+			$len -= $blen;
+		}
+		for($pos = 0; $pos<$len; $pos += 16) {
+			$block = substr($data, $pos, 16);
+			if ($this->mode === static::MODE_DECRYPT) {hash_update($this->hmac, $block);}
+			$block = openssl_encrypt($block, 'aes-256-ctr',
+					$this->dk["enckey"], OPENSSL_RAW_DATA,
+					$this->get_nonce());
+			if ($this->mode === static::MODE_ENCRYPT) {hash_update($this->hmac, $block);}
+			$out .= $block;
+		}
+		return $out;
+	}
+	
+	static function decrypt($data, $password) {
+		$opt = array("strength" => 3, "salt" => substr($data, 0, 16), "mode" => static::MODE_DECRYPT);
+		$aex = new AExCrypto($password, $opt);
+		if ($aex->get_verify() !== substr($data, 16, 2)) {return false;} //bad password
+		$encrypted = substr($data, 18, strlen($data) - 28);
+		$out = $aex->update($encrypted) . $aex->finalize();
+		if ($aex->get_authcode() !== substr($data, strlen($data) - 10, 10)) {return false;} //Incorrect hash
+		return $out;
+		return $out;
+	}
+	
+	static function encrypt($data, $password) {
+		$aex = new AExCrypto($password, array("mode" => static::MODE_ENCRYPT));
+		$out = $aex->get_salt() . $aex->get_verify();
+		$out .= $aex->update($data);
+		$out .= $aex->finalize();
+		$out .= $aex->get_authcode();
+		return $out;
+	}
+}
+
+class Log {
+	const DEBUG = 0;
+	const INFO  = 1;
+	const WARN  = 2;
+	const ERROR = 4;
+	private $data;
+	private $level;
+	private $fh;
+	
+	function __construct($opt = null) {
+		if (!$opt) {$opt = array();}
+		$opt += array("level" => 1);
+		$this->data = array();
+		$this->level = $opt["level"];
+		$this->fh = isset($opt["path"]) ? fopen($opt["path"], "ab") : null;
+	}
+	
+	function __destruct() {
+		if ($this->fh) {if (count($this->data)) {$this->flush();}fclose($this->fh);}
+	}
+	
+	function flush() {
+		if ($this->fh) {
+			$levels = array(0 => 'D', 1 => 'I', 2 => 'W', 4 => 'E');
+			foreach($this->data as $ent) {
+				fwrite($this->fh, $levels[$ent[0]] . "," . date('Y-m-dTH:i:s', $ent[1]) . ' : ' . $ent[2] . "\n");
+			}
+		}
+		$this->data = array();
+	}
+	
+	function get_data() {
+		return $this->data;
+	}
+	
+	function get_level($name = null) {
+		if ($name && is_string($name)) {
+			$names = array("DEBUG"=>static::DEBUG,"INFO"=>static::INFO,"WARN"=>static::WARN,"ERROR"=>static::ERROR);
+			$name = str_to_upper($name);
+			return isset($names[$name]) ? $names[$name] : 1;
+		} elseif (is_int($name)) {
+			return $name;
+		}
+		return $this->level;
+	}
+	
+	function log($msg, $level = null) {
+		if ($level === null) {$level = static::INFO;}
+		if (is_string($level)) {$level = $this->get_level($level);}
+		if ($this->level > $level) {return;}
+		$this->data[] = array($level, time(), $msg);
+		if ($this->fh && count($this->data) > 1000) {$this->flush();}
+	}
+	
+	function set_level($level) {
+		if (is_string($level)) {$level = $this->get_level($level);}
+		$this->level = $level;
+	}
+}
+
+/**
+ * AEx encryption filter
+ */
+class AExEncryptionFilter extends \php_user_filter {
+	public $stream; //for stream_bucket_new()
+	
+	function filter($in, $out, &$consumed, $closing) {
+		$log = isset($this->params["log"]) ? $this->params["log"] : null;
+		if ($log) {$log->log("in:".get_resource_type($in).",consumed:".var_export($consumed,true).",closing:".($closing?'T':'f'));}
+		$loops = 0;
+		$aex = $this->params["aex"];
+		$hdr = $aex->updated ? "" : ($aex->get_salt() . $aex->get_verify());
+		while ($bucket = stream_bucket_make_writeable($in)) {
+			$consumed += $bucket->datalen;
+			if ($log) {$log->log("[".($loops++)."] datalen:".$bucket->datalen.",consumed:".var_export($consumed,true).",closing:".($closing?'T':'f'));}
+			$bucket->data = $hdr . $aex->update($bucket->data);
+			$hdr = "";
+			stream_bucket_append($out, $bucket);
+		}
+		if ($closing && !$aex->finalized) {
+			if ($log) {$log->log("finalize");}
+			$bucket = stream_bucket_new($this->stream, $aex->finalize() . $aex->get_authcode());
+			stream_bucket_append($out, $bucket);
+		}
+		return PSFS_PASS_ON;
+	}
+}
+stream_filter_register("rezipe.aescryptofilter", 'Rezipe\AExEncryptionFilter') or die("Failed to register filter");
+
+/**
  * empty filter
  */
 class EmptyFilter extends \php_user_filter {
@@ -1179,14 +1414,29 @@ class EmptyFilter extends \php_user_filter {
 stream_filter_register("rezipe.emptyfilter", 'Rezipe\EmptyFilter') or die("Failed to register filter");
 
 /**
+ * CRC-32 filter
+ */
+class Crc32Filter extends \php_user_filter {
+	function filter($in, $out, &$consumed, $closing) {
+		$hasher = $this->params["hasher"];
+		while($bucket = stream_bucket_make_writeable($in)) {
+			$consumed += $bucket->datalen;
+			hash_update($hasher, $bucket->data);
+			stream_bucket_append($out, $bucket);
+		}
+		return PSFS_PASS_ON;
+	}
+}
+stream_filter_register("rezipe.crc32filter", 'Rezipe\Crc32Filter') or die("Failed to register filter");
+
+/**
  * bytelength count filter
  */
 class StrlenFilter extends \php_user_filter {
 	function filter($in, $out, &$consumed, $closing) {
 		while ($bucket = stream_bucket_make_writeable($in)) {
 			$consumed += $bucket->datalen;
-			$len = strlen($bucket->data); //$bucket->datalen
-			$this->params["size"]->total += $len;
+			$this->params["size"]->total += $bucket->datalen;
 			stream_bucket_append($out, $bucket);
 		}
 		return PSFS_PASS_ON;
@@ -1237,14 +1487,20 @@ class DataConverter {
 	private $path;
 	private $data;
 	public $option;
+	public $crc32_params;
 	public $zlib_params;
 	public $transfer_params;
 	public $strlen_params;
+	public $zipcrypto_params;
+	public $aescrypto_params;
 	public $buflen;
+	private $crc32_filter;
 	private $zlib_filter;
 	private $transfer_filter;
 	private $strlen_filter;
 	private $empty_filter;
+	private $zipcrypto_filter;
+	private $aescrypto_filter;
 	private $hasher;
 	private $crc32;
 	private $compsize;
@@ -1252,12 +1508,14 @@ class DataConverter {
 	function __construct() {
 		$this->path = null;
 		$this->data = null;
+		$this->crc32_params = array("hasher" => null);
 		$this->zlib_params = array('level' => -1, 'window' => -15, 'memory' => 9);
 		$this->transfer_params = array("transfer" => null);
 		$sizeObj = new \stdClass();
 		$sizeObj->total = 0;
 		$this->strlen_params = array("size" => $sizeObj);
 		$this->zipcrypto_params = array("zc" => null);
+		$this->aescrypto_params = array("aex" => null); //"log" => new Log(array("path" => "aex_log.log"))
 		$this->buflen = 32*1024;
 		$this->crc32 = null;
 		$this->compsize = null;
@@ -1282,29 +1540,37 @@ class DataConverter {
 		if (!$opt) {$opt = array();}
 		$opt = $opt + $this->option;
 		$mem = fopen("php://memory", "wb");
-		$to_write = $opt["zlib"] || $opt["strlen"];
+		if ($opt["crc32"]) {$this->set_crc32_filter($mem, $this->hasher);}
 		if ($opt["zlib"]) {$this->set_zlib_filter($mem);}
 		if (is_string($opt["zipcrypto"]) && is_int($opt["crc32"])) {
 			$this->set_zipcrypto_filter($mem, $opt["zipcrypto"], $opt["crc32"]);
+		} elseif (is_string($opt["aescrypto"])) {
+			$this->set_aescrypto_filter($mem, $opt["aescrypto"]);
 		}
 		if ($opt["transfer"]) {$this->set_transfer_filter($mem, $opt["transfer"]);}
-		if ($opt["strlen"]) {$this->set_strlen_filter($mem);}
+		if (true || $opt["strlen"]) {$this->set_strlen_filter($mem);}
 		$this->set_empty_filter($mem); //必ず末尾にEmptyFilterをセット
 		if ($this->data) {
-			if ($to_write) {fwrite($mem, $this->data);}
-			if ($opt["crc32"] === true) {hash_update($this->hasher, $this->data);}
+			fwrite($mem, $this->data);
 		} else {
 			$io_r = fopen($this->path, 'rb');
 			while(!feof($io_r)) {
 				$buf = fread($io_r, $this->buflen);
-				if ($to_write) {fwrite($mem, $buf);}
-				if ($opt["crc32"] === true) {hash_update($this->hasher, $buf);}
+				fwrite($mem, $buf);
 			}
 			fclose($io_r);
 		}
 		fclose($mem);
 		if ($opt["crc32"] === true) {$this->set_crc32();}
-		if ($opt["strlen"]) {$this->set_compsize();}
+		if (true || $opt["strlen"]) {$this->set_compsize();}
+	}
+	
+	function set_aescrypto_filter($io, $password) {
+		$aex = new AExCrypto($password);
+		$this->aescrypto_params["aex"] = $aex;
+		$this->aescrypto_filter = stream_filter_append($io, "rezipe.aescryptofilter",
+				STREAM_FILTER_WRITE, $this->aescrypto_params);
+		
 	}
 	
 	function set_compsize($reset = true) {
@@ -1315,6 +1581,12 @@ class DataConverter {
 	function set_crc32($reset = true) {
 		$this->crc32 = hash_final($this->hasher, true);
 		if ($reset) {$this->hasher = null;}
+	}
+	
+	function set_crc32_filter($io, $hasher) {
+		$this->crc32_params["hasher"] = $hasher;
+		$this->crc32_filter = stream_filter_append($io, "rezipe.crc32filter",
+				STREAM_FILTER_WRITE, $this->crc32_params);
 	}
 	
 	function set_empty_filter($io) {
@@ -1359,11 +1631,13 @@ class DataConverter {
 		$my = new static();
 		$opt = $opt + array("path" => null, "data" => false,
 				"zlib" => false, "transfer" => false, "strlen" => false,
-				"crc32" => false, "buffer" => null, "zipcrypto" => null);
+				"crc32" => false, "buffer" => null, "zipcrypto" => null,
+				"aescrypto" => null);
 		$my->option = $opt;
 		if ($opt["path"]) {$my->path = $opt["path"];}
 		if ($opt["data"]) {$my->data = $opt["data"];}
-		if ($opt["crc32"] === true) {$my->hasher = hash_init('crc32b');}
+		if ($opt["crc32"] === true || is_string($opt["zipcrypto"]) &&
+				is_int($opt["crc32"])) {$my->hasher = hash_init('crc32b');}
 		if ($opt["buffer"]) {$my->buflen = $opt["buffer"];}
 		return $my;
 	}
@@ -1379,6 +1653,7 @@ class ExtensibleDataField {
 	const HEADER_ID_EXTIME  = 0x5455;
 	const HEADER_ID_UPATH   = 0x7075;
 	const HEADER_ID_UNIX2   = 0x7855;
+	const HEADER_ID_AEX     = 0x9901;
 }
 
 // 0x0001
@@ -1644,5 +1919,45 @@ class ExtendedTimestamp extends ExtensibleDataField {
 				($this->flags_cnt > 0 ? pack('V', $this->mtime) : '') .
 				($this->flags_cnt > 1 ? pack('V', $this->atime) : '') .
 				($this->flags_cnt > 2 ? pack('V', $this->ctime) : '');
+	}
+}
+
+// 0x9901 AE-x encryption structure
+class AExEncryptionExtraField extends ExtensibleDataField {
+	private $vender_id;
+	private $vender_version;
+	private $strength;
+	private $method;
+	
+	function __construct($opt = null) {
+		if (!$opt) {$opt = array();}
+		$opt += array("version" => 2, "strength" => 3, "method" => 0);
+		$this->header_id = static::HEADER_ID_AEX;
+		$this->data_size = 7;
+		$this->vender_version = $opt["version"];
+		$this->vender_id = 0x4541; //'AE'
+		$this->strength = $opt["strength"];
+		if (is_string($this->strength)) {
+			if (strpos($this->strength, '256') !== false) {
+				$this->strength = 3; //AES256
+			} elseif (strpos($this->strength, '192') !== false) {
+				$this->strength = 2; //AES192
+			} elseif (strpos($this->strength, '128') !== false) {
+				$this->strength = 1; //AES128
+			} else {
+				$this->strength = 3;
+			}
+		}
+		$this->method = $opt["method"];
+	}
+	
+	function bytes() {
+		return 4 + $this->data_size;
+	}
+	
+	function to_s() {
+		return pack('vvvvCv', $this->header_id, $this->data_size,
+				$this->vender_version, $this->vender_id,
+				$this->strength, $this->method);
 	}
 }

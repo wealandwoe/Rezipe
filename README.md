@@ -15,7 +15,7 @@ PHPによるZIPエンコーダ。以下の特徴がある
 ## 動作環境
 
 PHP 5.6以上(PHP7.3, 5.6で検証した。それ以下は未検証)。64bitを推奨、ZIP64を使わないなら32bitでも動作する。
-また、ファイル名のエンコードに mbstring 関数を利用している。
+また、ファイル名のエンコードに mbstring 関数を利用している。AES暗号化機能を使う場合は openssl 関数が必要。
 
 ## 使い方
 
@@ -129,6 +129,9 @@ $zip->encoding = 'UTF-8,CP932';
 
 # 暗号化(ZipCrypto)ZIPを利用する場合、パスワードを指定する
 $zip->zipcrypto = null;
+
+# AES暗号化(WinZipのAES-256暗号)ZIPを利用する場合、パスワードを指定する
+$zip->aescrypto = null;
 
 ```
 
