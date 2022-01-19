@@ -1,7 +1,7 @@
 <?php
 namespace Rezipe;
 
-const VERSION = '0.9.0';
+const VERSION = '0.9.1';
 const FE_SIGNATURE = 0x04034b50; # "PK\x03\x04"
 const DD_SIGNATURE = 0x08074b50; # "PK\x07\x08"
 const CD_SIGNATURE = 0x02014b50; # "PK\x01\x02"
@@ -119,6 +119,7 @@ class ZipEntryIterator implements \Iterator {
 		$this->entries[] = new EndOfCentralDirectory($cds);
 	}
 	
+	#[\ReturnTypeWillChange]
 	function current() {
 		$ent = $this->entries[$this->position];
 		$ent->set_offset($this->offset);
@@ -129,10 +130,12 @@ class ZipEntryIterator implements \Iterator {
 		return $ent;
 	}
 	
+	#[\ReturnTypeWillChange]
 	function key() {
 		return $this->position;
 	}
 	
+	#[\ReturnTypeWillChange]
 	function next() {
 		$this->offset += $this->entries[$this->position++]->bytes();
 		if ($this->position < $this->eocd_position) {return;}
@@ -147,6 +150,7 @@ class ZipEntryIterator implements \Iterator {
 		}
 	}
 	
+	#[\ReturnTypeWillChange]
 	function rewind() {
 		$this->position = 0;
 		$this->offset = 0;
@@ -211,6 +215,7 @@ class ZipEntryIterator implements \Iterator {
 		}
 	}
 	
+	#[\ReturnTypeWillChange]
 	function valid() {
 		return isset($this->entries[$this->position]);
 	}
@@ -1245,7 +1250,7 @@ class AExCrypto {
 	
 	function get_salt() {
 		if ($this->salt) {return $this->salt;}
-		return openssl_random_pseudo_bytes(4 + 4 * $this->strength);
+		return ZipCrypto::randbytes(4 + 4 * $this->strength);
 	}
 	
 	function get_verify() {
@@ -1375,6 +1380,7 @@ class Log {
 class AExEncryptionFilter extends \php_user_filter {
 	public $stream; //for stream_bucket_new()
 	
+	#[\ReturnTypeWillChange]
 	function filter($in, $out, &$consumed, $closing) {
 		$log = isset($this->params["log"]) ? $this->params["log"] : null;
 		if ($log) {$log->log("in:".get_resource_type($in).",consumed:".var_export($consumed,true).",closing:".($closing?'T':'f'));}
@@ -1402,6 +1408,7 @@ stream_filter_register("rezipe.aescryptofilter", 'Rezipe\AExEncryptionFilter') o
  * empty filter
  */
 class EmptyFilter extends \php_user_filter {
+	#[\ReturnTypeWillChange]
 	function filter($in, $out, &$consumed, $closing) {
 		while ($bucket = stream_bucket_make_writeable($in)) {
 			$consumed += $bucket->datalen;
@@ -1417,6 +1424,7 @@ stream_filter_register("rezipe.emptyfilter", 'Rezipe\EmptyFilter') or die("Faile
  * CRC-32 filter
  */
 class Crc32Filter extends \php_user_filter {
+	#[\ReturnTypeWillChange]
 	function filter($in, $out, &$consumed, $closing) {
 		$hasher = $this->params["hasher"];
 		while($bucket = stream_bucket_make_writeable($in)) {
@@ -1433,6 +1441,7 @@ stream_filter_register("rezipe.crc32filter", 'Rezipe\Crc32Filter') or die("Faile
  * bytelength count filter
  */
 class StrlenFilter extends \php_user_filter {
+	#[\ReturnTypeWillChange]
 	function filter($in, $out, &$consumed, $closing) {
 		while ($bucket = stream_bucket_make_writeable($in)) {
 			$consumed += $bucket->datalen;
@@ -1445,6 +1454,7 @@ class StrlenFilter extends \php_user_filter {
 stream_filter_register("rezipe.strlenfilter", 'Rezipe\StrlenFilter') or die("Failed to register filter");
 
 class TransferFilter extends \php_user_filter {
+	#[\ReturnTypeWillChange]
 	function filter($in, $out, &$consumed, $closing) {
 		$transfer = $this->params["transfer"];
 		while($bucket = stream_bucket_make_writeable($in)) {
@@ -1458,6 +1468,7 @@ class TransferFilter extends \php_user_filter {
 stream_filter_register("rezipe.transferfilter", 'Rezipe\TransferFilter') or die("Failed to register filter");
 
 class ZipcryptoFilter extends \php_user_filter {
+	#[\ReturnTypeWillChange]
 	function filter($in, $out, &$consumed, $closing) {
 		$zc = $this->params["zc"];
 		$to_set_enchdr = false;

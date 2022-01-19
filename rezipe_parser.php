@@ -1,7 +1,7 @@
 <?php
 namespace Rezipe;
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const FE_SIGNATURE = 0x04034b50; # "PK\x03\x04"
 const DD_SIGNATURE = 0x08074b50; # "PK\x07\x08"
 const CD_SIGNATURE = 0x02014b50; # "PK\x01\x02"
@@ -552,6 +552,7 @@ class ZipCrypto {
  * empty filter
  */
 class EmptyFilter extends \php_user_filter {
+	#[\ReturnTypeWillChange]
 	function filter($in, $out, &$consumed, $closing) {
 		while($bucket = stream_bucket_make_writeable($in)) {
 			$consumed += $bucket->datalen;
@@ -564,6 +565,7 @@ class EmptyFilter extends \php_user_filter {
 stream_filter_register("rezipe.emptyfilter", 'Rezipe\EmptyFilter') or die("Failed to register filter");
 
 class Crc32Filter extends \php_user_filter {
+	#[\ReturnTypeWillChange]
 	function filter($in, $out, &$consumed, $closing) {
 		$hasher = $this->params["hasher"];
 		while($bucket = stream_bucket_make_writeable($in)) {
@@ -577,6 +579,7 @@ class Crc32Filter extends \php_user_filter {
 stream_filter_register("rezipe.crc32filter", 'Rezipe\Crc32Filter') or die("Failed to register filter");
 
 class ZipdecryptoFilter extends \php_user_filter {
+	#[\ReturnTypeWillChange]
 	function filter($in, $out, &$consumed, $closing) {
 		$zc = $this->params["zc"];
 		$crc32 = $zc->get_crc32();
