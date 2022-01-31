@@ -1,7 +1,7 @@
 <?php
 namespace Rezipe;
 
-const VERSION = '0.9.1';
+const VERSION = '0.9.2';
 const FE_SIGNATURE = 0x04034b50; # "PK\x03\x04"
 const DD_SIGNATURE = 0x08074b50; # "PK\x07\x08"
 const CD_SIGNATURE = 0x02014b50; # "PK\x01\x02"
@@ -49,7 +49,8 @@ class Zip {
 		$this->files_info[] = $ent;
 	}
 	
-	function add_file($path, $virtual_path, $comp = null) {
+	function add_file($path, $virtual_path = null, $comp = null) {
+		if ($virtual_path === null) {$virtual_path = basename($path);}
 		if ($comp === null) {$comp = $this->compress;}
 		$ent = new FileEntry($virtual_path, $comp);
 		if ($this->is_utf8) {$ent->set_utf8(true);}
