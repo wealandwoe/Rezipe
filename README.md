@@ -14,14 +14,13 @@ PHPによるZIPエンコーダ。以下の特徴がある
 
 ## 動作環境
 
-PHP 5.6以上(PHP7.3, 5.6で検証した。それ以下は未検証)。64bitを推奨、ZIP64を使わないなら32bitでも動作する。
-また、ファイル名のエンコードに mbstring 関数を利用している。AES暗号化機能を使う場合は openssl 関数が必要。
+PHP 5.6以上(PHP8.1, 7.3, 5.6で検証した。それ以下は未検証)。64bitを推奨、ZIP64を使わないなら32bitでも動作する。AES暗号化機能を使う場合は openssl 関数が必要。
 
 ## 使い方
 
 ### 例1. 一時ファイルを作成せずに出力(Downloadさせる)
 
-`Zip::add_file()` でファイルを追加し、`Zip::byte()` でファイルサイズを計測し、`Zip::save()` で出力する
+`Zip::add_file()` でファイルを追加し、`Zip::bytes()` でファイルサイズを計測し、`Zip::save()` で出力する
 
 ```php
 <?php
@@ -35,11 +34,11 @@ foreach(glob('path/to/dir/*.jpg') as $file) {
 header('Content-Type: application/octet-stream');
 header('Content-Disposition: attachment; filename=download.zip');
 header('Content-Length: ' . $zip->bytes());
-$zip->save('php://stdout');
+$zip->save('php://output');
 ```
 
 圧縮してもDataDescriptorを利用すれば、すぐさまダウンロード開始される。
-上と違いContentLengthをセットしていない。圧縮する場合は `Zip::byte()` 実行時に圧縮処理で遅くなるため。
+上と違いContentLengthをセットしていない。圧縮する場合は `Zip::bytes()` 実行時に圧縮処理で遅くなるため。
 
 ```php
 <?php
@@ -53,7 +52,7 @@ foreach(glob('path/to/dir/*.jpg') as $file) {
 }
 header('Content-Type: application/octet-stream');
 header('Content-Disposition: attachment; filename=download.zip');
-$zip->save('php://stdout');
+$zip->save('php://output');
 ```
 
 ### 例2. ローカルに保存
@@ -86,6 +85,41 @@ $zip->add_file("passwords.txt");
 $zip->save('crypted.zip');
 ```
 
+### 例4. AES暗号化
+
+より強力な暗号化方式だが、展開できるアーカイバを選ぶ(Windows/Mac標準では開けない。7-zipでは開ける)。
+こちらはDataDescriptorと併用可能なので、圧縮しつつ即ダウンロードできる
+
+```php
+<?php
+require_once 'rezipe.php';
+$zip = new Rezipe\Zip();
+$zip->compress = true;
+$zip->aescrypto = 'verylongstrongpassword';
+$zip->datadesc = true;
+$zip->add_file("secret.pdf");
+$zip->add_file("otakara.jpg");
+$zip->add_file("passwords.txt");
+header('Content-Type: application/octet-stream');
+header('Content-Disposition: attachment; filename=aes_crypted.zip');
+$zip->save('php://output');
+```
+
+### 例5. ファイル名としてShift-JISを使う場合
+
+Windows7以前の標準アーカイバでは、ZIP内ファイル名のエンコーディングがShift-JISでないと文字化けしていた。あえてそのようなzipファイルを作りたい場合は以下のようにすれば良い。文字コード変換にmbstring拡張が必要。
+
+```php
+<?php
+require_once 'rezipe.php';
+$zip = new Rezipe\Zip();
+$zip->is_utf8 = false;  # UTF-8フラグはOFFにしておく
+$zip->add_file("元ファイル名(UTF-8).txt",
+        mb_convert_encoding("変換後ファイル名(SJIS).txt", "CP932", "UTF-8"));
+$zip->save('for_old_windows.zip');
+```
+
+
 ## 設定項目
 
 ```php
@@ -96,7 +130,7 @@ $zip = new Rezipe\Zip();
 $zip->compress = false;
 
 # 拡張フィールドに精度の高いNTFS時刻(64bit Mtime,Atime,Ctime)を追加する
-$zip->ntfsdate = true;
+$zip->ntfsdate = false;
 
 # 拡張フィールドにUnixTime(32bit Mtime,Atime,Ctime)を追加する
 $zip->extime   = false;
@@ -113,19 +147,11 @@ $zip->upath = false;
 # LocalFileHeader直後にDataDescriptorを付け加える
 $zip->datadesc = false;
 
-# DataDescriptorにsignature("PK\007\008")を付けるかどうか
+# DataDescriptorにsignature("PK\007\008")を付けるかどうか(MacOSX向けにはtrueを推奨)
 $zip->datadesc_signature = false;
 
-# デバッグ出力する
-$zip->debug = true;
-
-# ZIPファイル内エンコーディングをUTF-8にする
-$zip->is_utf8 = true;
-
-# ZIPファイル内エンコーディングを変更したい場合、文字セット名を指定する
-#  カンマ区切りで2つ指定すると、
-#  'UTF-8', 'CP932', 'Macjapanese', ... (cite: https://www.php.net/manual/ja/mbstring.supported-encodings.php)
-$zip->encoding = 'UTF-8,CP932';
+# ZIPファイル内エンコーディングをにUTF-8を指定する
+$zip->is_utf8 = false;
 
 # 暗号化(ZipCrypto)ZIPを利用する場合、パスワードを指定する
 $zip->zipcrypto = null;
