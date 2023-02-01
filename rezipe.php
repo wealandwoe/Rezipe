@@ -1,7 +1,7 @@
 <?php
 namespace Rezipe;
 
-const VERSION = '0.9.2';
+const VERSION = '0.9.3';
 const FE_SIGNATURE = 0x04034b50; # "PK\x03\x04"
 const DD_SIGNATURE = 0x08074b50; # "PK\x07\x08"
 const CD_SIGNATURE = 0x02014b50; # "PK\x01\x02"
@@ -375,7 +375,7 @@ class FileEntry implements AbstractEntry {
 		foreach($data as $arr) {
 			list($val, $p, $desc, $size) = $arr;
 			$b = $p ? pack($p, $val) : $val;
-			echo "${offset},${size},${desc}," . var_export($val,true) . ',' . ($val === $b ? '//' : ('"'.bin2hex($b).'"')) . "\n";
+			echo "{$offset},{$size},{$desc}," . var_export($val,true) . ',' . ($val === $b ? '//' : ('"'.bin2hex($b).'"')) . "\n";
 			$offset += $b ? strlen($b) : 0;
 		}
 	}
@@ -716,7 +716,7 @@ class CentralDirectory implements AbstractEntry {
 		foreach($data as $arr) {
 			list($val, $p, $desc, $size) = $arr;
 			$b = $p ? pack($p, $val) : $val;
-			echo "${offset},${size},${desc}," . var_export($val,true) . ',' . ($val === $b ? '//' : ('"'.bin2hex($b).'"')) . "\n";
+			echo "{$offset},{$size},{$desc}," . var_export($val,true) . ',' . ($val === $b ? '//' : ('"'.bin2hex($b).'"')) . "\n";
 			$offset += $b ? strlen($b) : 0;
 		}
 	}
@@ -836,7 +836,7 @@ class EndOfCentralDirectory implements AbstractEntry {
 		foreach($data as $arr) {
 			list($val, $p, $desc, $size) = $arr;
 			$b = $p ? pack($p, $val) : $val;
-			echo "${offset},${size},${desc}," . var_export($val,true) . ',' . ($val === $b ? '//' : ('"'.bin2hex($b).'"')) . "\n";
+			echo "{$offset},{$size},{$desc}," . var_export($val,true) . ',' . ($val === $b ? '//' : ('"'.bin2hex($b).'"')) . "\n";
 			$offset += $b ? strlen($b) : 0;
 		}
 	}
@@ -929,7 +929,7 @@ class Zip64EndOfCentralDirectoryRecord implements AbstractEntry {
 		foreach($data as $arr) {
 			list($val, $p, $desc, $size) = $arr;
 			$b = $p ? pack($p, $val) : $val;
-			echo "${offset},${size},${desc}," . var_export($val,true) . ',' . ($val === $b ? '//' : ('"'.bin2hex($b).'"')) . "\n";
+			echo "{$offset},{$size},{$desc}," . var_export($val,true) . ',' . ($val === $b ? '//' : ('"'.bin2hex($b).'"')) . "\n";
 			$offset += $b ? strlen($b) : 0;
 		}
 	}
@@ -996,7 +996,7 @@ class Zip64EndOfCentralDirectoryLocator implements AbstractEntry {
 		foreach($data as $arr) {
 			list($val, $p, $desc, $size) = $arr;
 			$b = $p ? pack($p, $val) : $val;
-			echo "${offset},${size},${desc}," . var_export($val,true) . ',' . ($val === $b ? '//' : ('"'.bin2hex($b).'"')) . "\n";
+			echo "{$offset},{$size},{$desc}," . var_export($val,true) . ',' . ($val === $b ? '//' : ('"'.bin2hex($b).'"')) . "\n";
 			$offset += $b ? strlen($b) : 0;
 		}
 	}

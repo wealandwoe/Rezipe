@@ -1,7 +1,7 @@
 <?php
 namespace Rezipe;
 
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 const FE_SIGNATURE = 0x04034b50; # "PK\x03\x04"
 const DD_SIGNATURE = 0x08074b50; # "PK\x07\x08"
 const CD_SIGNATURE = 0x02014b50; # "PK\x01\x02"
@@ -20,7 +20,7 @@ function p($obj) {
 		echo $out . "\n";
 	} else {
 		if ($err = json_last_error()) {
-			echo "// JSON_ERROR[code=${err}]:" . json_last_error_msg() . "\n";
+			echo "// JSON_ERROR[code={$err}]:" . json_last_error_msg() . "\n";
 			json_encode("1");
 		}
 		echo serialize($obj) . "\n";
@@ -160,7 +160,7 @@ class ZipParser {
 			$is_utf8 = ($r['flag'] & (1 << 11)) === (1 << 11);
 			if (!$is_utf8) {$r['filename'] = mb_convert_encoding($r['filename'], 'UTF-8', 'CP932');}  #CP932を想定
 			$is_encrypted = ($r['flag'] & 1) === 1;
-			puts("### CentralDirectory[${i}] : 0x" . sprintf('%08x', $pos) . " - ${r['filename']}" . ($is_encrypted ? ' (Encrypted)' : ''));
+			puts("### CentralDirectory[{$i}] : 0x" . sprintf('%08x', $pos) . " - {$r['filename']}" . ($is_encrypted ? ' (Encrypted)' : ''));
 			# size, compsize, offset, diskstart が 0xffffffff (0xffff) だった場合exdataをparse
 			$z64overflow_fields = array();
 			foreach($z64target['fields'] as $fld) {
@@ -186,7 +186,7 @@ class ZipParser {
 					$fld_size = $z64target['size'][$fld];
 					$v = substr($z64exdata['data'], $exdata_pos, $fld_size);
 					$num = unpack($fld_size === 4 ? 'V' : 'P', $v)[1];
-					puts("  [${n}] ZIP64 overflow field[${fld}] => replaced from extra field value[${num}]");
+					puts("  [{$n}] ZIP64 overflow field[{$fld}] => replaced from extra field value[{$num}]");
 					$r[$fld] = $num;
 					$exdata_pos += $fld_size;
 					$n++;
@@ -197,7 +197,7 @@ class ZipParser {
 			$pos += 46 + $r['len'] + $r['exlen'] + $r['commlen'];
 			# check
 			if ($r['sig'] !== CD_SIGNATURE) {
-				$stat['errors'][] = "CD[${i}] Invalid signature: expected=>".dechex(CD_SIGNATURE).", actual=>" . dechex($r['sig']);
+				$stat['errors'][] = "CD[{$i}] Invalid signature: expected=>".dechex(CD_SIGNATURE).", actual=>" . dechex($r['sig']);
 			}
 		}
 		
@@ -262,7 +262,7 @@ class ZipParser {
 					$enc_header = fread($fh, 12);
 				}
 			}
-			puts("### FileEntry[${i}] : 0x" . sprintf('%08x', $pos) . " - " . $r['filename'] . ($is_encrypted ? ' (Encrypted)' : ''));
+			puts("### FileEntry[{$i}] : 0x" . sprintf('%08x', $pos) . " - " . $r['filename'] . ($is_encrypted ? ' (Encrypted)' : ''));
 			if ($is_encrypted) {
 				puts("  [EncryptionHeader] : " . bin2hex($enc_header));
 				if ($enc_info['type']) {puts("  [EncryptionInfo] : " . $enc_info['type'] . ' ' . $enc_info['detail']);}
@@ -284,7 +284,7 @@ class ZipParser {
 					$fld_size = $z64target['size'][$fld];
 					$v = substr($z64exdata['data'], $exdata_pos, $fld_size);
 					$num = unpack($fld_size === 4 ? 'V' : 'P', $v)[1];
-					puts("  [${n}] ZIP64 overflow field[${fld}] => replaced from extra field value[${num}]");
+					puts("  [{$n}] ZIP64 overflow field[{$fld}] => replaced from extra field value[{$num}]");
 					$r[$fld] = $num;
 					$exdata_pos += $fld_size;
 					$n++;
@@ -299,7 +299,7 @@ class ZipParser {
 			$pos += 30 + $r['len'] + $r['exlen'] + $compsize;
 			# check
 			if ($r['sig'] !== FE_SIGNATURE) {
-				$stat['errors'][] = "FE[${i}] Invalid signature: expected=>" . dechex(FE_SIGNATURE) . ", actual=>" . dechex($r['sig']);
+				$stat['errors'][] = "FE[{$i}] Invalid signature: expected=>" . dechex(FE_SIGNATURE) . ", actual=>" . dechex($r['sig']);
 			}
 			if ($check_crc32 && !$is_directory) {
 
@@ -332,7 +332,7 @@ class ZipParser {
 					puts("  CRC-32: ok " . dechex($crc32));
 				} else {
 					puts("  CRC-32: NG " . dechex($ex_crc32) . " <=> " . dechex($crc32));
-					$stat['errors'][] = "FE[${i}] BAD CRC-32: expected=>" . dechex($ex_crc32) . ", actual=>" . dechex($crc32);
+					$stat['errors'][] = "FE[{$i}] BAD CRC-32: expected=>" . dechex($ex_crc32) . ", actual=>" . dechex($crc32);
 				}
 			}
 			# general purpose flag Bit3 : DataDescriptor
@@ -353,7 +353,7 @@ class ZipParser {
 				} else {
 					$r = unpack('Vsize/Vcompsize', fread($fh, 8)) + $r;
 				}
-				puts("#### " . ($zip64_dd ? 'ZIP64 ' : '') . "DataDescriptor of FE[${i}] : 0x" . sprintf('%08x', $pos));
+				puts("#### " . ($zip64_dd ? 'ZIP64 ' : '') . "DataDescriptor of FE[{$i}] : 0x" . sprintf('%08x', $pos));
 				fseek($fh, $pos);
 				$buf = fread($fh, $dd);
 				p(array(bin2hex(substr($buf, 0, 12)) . "...", $dd, $r['crc32'], $r['size'], $r['compsize']));
@@ -733,7 +733,7 @@ class DataExtracter {
 
 if (isset($argv) && stripos($argv[0], basename(__FILE__)) !== FALSE) {
 	if (!isset($argv[1])) {
-		echo "Usage: php ${argv[0]} ZIP_FILE";
+		echo "Usage: php {$argv[0]} ZIP_FILE";
 		return;
 	}
 	$params = array('zipfile' => $argv[1]);
