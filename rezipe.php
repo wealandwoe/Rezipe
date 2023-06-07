@@ -1,7 +1,7 @@
 <?php
 namespace Rezipe;
 
-const VERSION = '0.9.3';
+const VERSION = '0.9.4';
 const FE_SIGNATURE = 0x04034b50; # "PK\x03\x04"
 const DD_SIGNATURE = 0x08074b50; # "PK\x07\x08"
 const CD_SIGNATURE = 0x02014b50; # "PK\x01\x02"
@@ -1675,6 +1675,7 @@ class Zip64ExtendedInformation extends ExtensibleDataField {
 	public $compsize;  // Size of compressed data
 	public $offset;    // Offset of local header record
 	public $diskstart; // Number of the disk on which this file starts
+	private $for_cd;
 	
 	function __construct($opt = null) {
 		if (!$opt) {$opt = array();}
@@ -1722,6 +1723,8 @@ class NTFSExtraField extends ExtensibleDataField {
 	const WINDOWS_TICK      = 10000000;
 	const SEC_TO_UNIX_EPOCH = 11644473600; // "01-Jan-1970" ~ "01-Jan-1601"
 	const UINT32_MAX        = '4294967296';
+	public $reserved;
+	public $tags;
 	
 	function __construct($mtime, $atime = null, $ctime = null) {
 		$this->header_id = static::HEADER_ID_NTFS;
